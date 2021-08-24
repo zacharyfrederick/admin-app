@@ -11,7 +11,20 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/hyperledger/fabric-sdk-go/pkg/core/config"
 	"github.com/hyperledger/fabric-sdk-go/pkg/gateway"
+	uuid "github.com/satori/go.uuid"
 )
+
+type AdminApp struct {
+	Wallet   *gateway.Wallet
+	Gw       *gateway.Gateway
+	Network  *gateway.Network
+	Contract *gateway.Contract
+}
+
+type CreateFundRequest struct {
+	Name          string `json: "name" binding: "required"`
+	InceptionDate string `json: "inceptionDate" binding: "required"`
+}
 
 func main() {
 	err := os.Setenv("DISCOVERY_AS_LOCALHOST", "true")
@@ -34,7 +47,7 @@ func main() {
 	ccpPath := filepath.Join(
 		"..",
 		"..",
-		"hyperledger",
+		"..",
 		"fabric-samples",
 		"test-network",
 		"organizations",
@@ -59,19 +72,71 @@ func main() {
 
 	contract := network.GetContract("admin")
 
-	if contract != nil {
-		fmt.Println("Hello world!")
+	if contract == nil {
+		log.Fatalf("The contract could not be retrieved")
 	}
 
+	adminApp := &AdminApp{Wallet: wallet, Gw: gw, Contract: contract, Network: network}
+
 	router := gin.Default()
-	router.GET("/", HomeHandler)
+	router.POST("/funds", adminApp.PostFundEndpoint)
+	router.GET("/funds/:id", adminApp.GetFundByIdEndpoint)
+	router.GET("/funds/:id/*action", GetInvestorsForFundEndpoint)
 
 	router.Run()
+}
+
+func (a *AdminApp) PostFundEndpoint(c *gin.Context) {
+	var createFundRequest CreateFundRequest
+
+	err := c.BindJSON(&createFundRequest)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "missing required parameter"})
+		return
+	}
+
+	validRequest := validateCreateFundRequest(&createFundRequest)
+	if !validRequest {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "improperly formatted inceptionDate"})
+	}
+
+	fundId := uuid.NewV4().String()
+	result, err := a.Contract.SubmitTransaction("CreateFund", fundId, createFundRequest.Name, createFundRequest.InceptionDate)
+	if err != nil {
+		log.Fatalf("Faiiled to submit transaction: %v", err)
+		fmt.Println(result)
+	}
+
+	c.JSON(http.StatusOK, gin.H{"fundId": fundId})
+}
+
+func (a *AdminApp) GetFundByIdEndpoint(c *gin.Context) {
+	fundId := c.Param("id")
+	result, err := a.Contract.EvaluateTransaction("QueryFundById", fundId)
+	if err != nil {
+		log.Fatalf("Failed to evaluate transaction: %v", err)
+	}
+	c.JSON(http.StatusOK, string(result))
+}
+
+func GetInvestorsForFundEndpoint(c *gin.Context) {
 
 }
 
-func HomeHandler(s *gin.Context) {
-	s.String(http.StatusOK, "Hello world!")
+func GetCapitalAccountsForFundEndpoint(c *gin.Context) {
+
+}
+
+func GetPortfoliosForFundEndpoint(c *gin.Context) {
+
+}
+
+func GetCapitalAccountActionsForFundEndpoint(c *gin.Context) {
+
+}
+
+func GetPortfolioActionsForFundEndpoint(c *gin.Context) {
+
 }
 
 func populateWallet(wallet *gateway.Wallet) error {
@@ -79,7 +144,7 @@ func populateWallet(wallet *gateway.Wallet) error {
 	credPath := filepath.Join(
 		"..",
 		"..",
-		"hyperledger",
+		"..",
 		"fabric-samples",
 		"test-network",
 		"organizations",
@@ -119,4 +184,12 @@ func populateWallet(wallet *gateway.Wallet) error {
 
 func handler(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, "Hi there, I love %s!", r.URL.Path[1:])
+}
+
+func validateDate(date string) bool {
+	return true
+}
+
+func validateCreateFundRequest(r *CreateFundRequest) bool {
+	return true
 }
